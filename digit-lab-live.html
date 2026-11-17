@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Digit Lab Live — Deriv tick analysis</title>
+<style>
+:root{--bg:#f3f6fb;--ink:#14213d;--mute:#5b6b88;--card:#fff;--line:#d5deee;--bar:#2f5bd8;--hi:#f2a900;--good:#1f8a4c;--bad:#c0392b}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1626;--ink:#e6ecf8;--mute:#93a2c2;--card:#16213a;--line:#273555;--bar:#6b93ff;--hi:#ffc531;--good:#4cc482;--bad:#ff7b6b}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,sans-serif;line-height:1.5}
+main{max-width:720px;margin:0 auto;padding:22px 16px 48px}
+h1{margin:0 0 6px;font-size:2rem}h2{font-size:1.1rem;margin:0 0 6px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:10px}
+label{display:block;font-size:.8rem;color:var(--mute);margin-bottom:2px}
+input,select,button{font:inherit;width:100%;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+button{cursor:pointer}button.p{background:var(--bar);color:#fff;border-color:var(--bar);font-weight:600}
+.bars{display:grid;grid-template-columns:repeat(10,1fr);gap:5px;height:150px;align-items:end;border-bottom:1px solid var(--line);margin-top:10px}
+.b{background:var(--bar);border-radius:4px 4px 0 0;min-height:2px;opacity:.6}.b.mx{background:var(--hi);opacity:1}
+.lb{display:grid;grid-template-columns:repeat(10,1fr);gap:5px;text-align:center;font-size:.75rem;color:var(--mute)}
+.lb b{display:block;font-size:1rem;color:var(--ink)}
+.mc{background:var(--bg);border-radius:8px;padding:9px 11px}.mc small{display:block;color:var(--mute);font-size:.78rem}.mc span{font-size:1.25rem;font-weight:700}
+.tape{display:flex;flex-wrap:wrap;gap:3px;margin-top:8px}.chip{width:24px;height:24px;border-radius:5px;display:grid;place-items:center;color:#fff;font-weight:700;font-size:.8rem;background:var(--bar)}.chip.o{background:#d9534f}
+.note{font-size:.88rem;color:var(--mute);margin:8px 0 0}.warn{font-size:.85rem;color:var(--mute);border-left:4px solid var(--hi);padding-left:10px}
+.err{color:var(--bad)}.ok{color:var(--good)}
+</style>
+</head>
+<body>
+<main>
+<h1>Digit Lab Live</h1>
+<p class="note">Reads public Deriv ticks (no login, no token, no trading) and analyzes the last digits.</p>
+
+<section class="panel">
+<h2>Live feed</h2>
+<div class="row">
+<div><label for="sym">Market</label><select id="sym">
+<option value="R_10">Volatility 10</option><option value="R_25">Volatility 25</option><option value="R_50">Volatility 50</option><option value="R_75">Volatility 75</option><option value="R_100" selected>Volatility 100</option>
+<option value="1HZ10V">Volatility 10 (1s)</option><option value="1HZ25V">Volatility 25 (1s)</option><option value="1HZ50V">Volatility 50 (1s)</option><option value="1HZ75V">Volatility 75 (1s)</option><option value="1HZ100V">Volatility 100 (1s)</option>
+</select></div>
+<div><label for="app">Your Deriv App ID</label><input id="app" value="1089" inputmode="numeric"></div>
+<div><label for="hist">Past ticks to load</label><select id="hist"><option>100</option><option>500</option><option selected>1000</option><option>3000</option><option>5000</option></select></div>
+</div>
+<div class="row"><button class="p" id="con">Connect</button><button id="dis">Disconnect</button><button id="csv">Export CSV</button></div>
+<p class="note" id="st">Not connected.</p>
+</section>
+
+<section class="panel">
+<h2>Digit frequency</h2>
+<div class="bars" id="bars"></div><div class="lb" id="lb"></div>
+<div class="row">
+<div class="mc"><small>Ticks</small><span id="n">0</span></div>
+<div class="mc"><small>Even / odd %</small><span id="eo">–</span></div>
+<div class="mc"><small>Most frequent</small><span id="hi">–</span></div>
+<div class="mc"><small>Under 5 / 5+ %</small><span id="ou">–</span></div>
+</div>
+<div class="tape" id="tape"></div>
+<p class="note" id="v"></p>
+</section>
+
+<section class="panel">
+<h2>Streaks</h2>
+<div class="row" id="sres"></div>
+<p class="note" id="sn">Streaks are normal in random data. A long run does not make the digit more or less likely next.</p>
+</section>
+
+<section class="panel">
+<h2>Contract check</h2>
+<div class="row">
+<div><label for="ct">Contract</label><select id="ct"><option value="over">Over</option><option value="under">Under</option><option value="match">Matches</option><option value="differ">Differs</option><option value="even">Even</option><option value="odd">Odd</option></select></div>
+<div id="bw"><label for="br">Digit</label><select id="br"></select></div>
+<div><label for="pay">Payout on win (%)</label><input type="number" id="pay" value="95" min="1"></div>
+</div>
+<div class="row" id="cres"></div><p class="note" id="cn"></p>
+</section>
+
+<section class="panel">
+<h2>Risk simulator</h2>
+<div class="row">
+<div><label for="bal">Starting balance</label><input type="number" id="bal" value="100" min="1"></div>
+<div><label for="stk">Stake per trade</label><input type="number" id="stk" value="1" min="0.01" step="0.01"></div>
+<div><label for="nt">Trades</label><input type="number" id="nt" value="200" min="1" max="5000"></div>
+</div>
+<div class="row"><button class="p" id="run">Run 2,000 sessions</button></div>
+<p class="note err" id="re"></p><div class="row" id="rres"></div><p class="note" id="rn"></p>
+</section>
+
+<p class="warn">Digits on these markets are random. Past patterns do not make the next digit more likely, and no tool can promise wins. Trading carries a high risk of losing your whole stake. Only use money you can afford to lose.</p>
+</main>
+<script>
+(function(){
+var $=function(i){return document.getElementById(i)},D=[],Q=[],ws=null,pip=2,MAX=5000,pend=false,want=false,tries=0,timer=null;
+var bars=$('bars'),lb=$('lb'),br=$('br');
+for(var i=0;i<10;i++){bars.innerHTML+='<div class="b" id="b'+i+'" style="height:0"></div>';lb.innerHTML+='<div><b>'+i+'</b><span id="p'+i+'">0%</span></div>';br.innerHTML+='<option>'+i+'</option>'}
+br.value='4';
+function dig(q){return +Number(q).toFixed(pip).slice(-1)}
+function status(t,c){var s=$('st');s.textContent=t;s.className='note '+(c||'')}
+function card(l,v,c){return '<div class="mc"><small>'+l+'</small><span'+(c?' style="color:var(--'+c+')"':'')+'>'+v+'</span></div>'}
+function spec(){
+var t=$('ct').value,b=+br.value;$('bw').style.display=(t==='even'||t==='odd')?'none':'';
+var f={over:function(x){return x>b},under:function(x){return x<b},match:function(x){return x===b},differ:function(x){return x!==b},even:function(x){return x%2===0},odd:function(x){return x%2===1}}[t],p=0;
+for(var k=0;k<10;k++)if(f(k))p+=.1;return{f:f,p:p}}
+function contract(){
+var s=spec(),pay=+$('pay').value/100,n=D.length;
+if(!(pay>0)){$('cres').innerHTML='';$('cn').textContent='Enter a payout above 0.';return}
+if(s.p<=0){$('cres').innerHTML='';$('cn').textContent='This contract can never win. Pick another digit.';return}
+var be=(1-s.p)/s.p,ev=s.p*pay-(1-s.p),o=n?D.filter(s.f).length/n:null;
+$('cres').innerHTML=card('True win chance',Math.round(s.p*100)+'%')+card('Payout to break even',(be*100).toFixed(1)+'%')+card('Expected per $1',(ev>=0?'+':'')+ev.toFixed(3),ev>=0?'good':'bad')+card('Hit rate in data',o===null?'–':(o*100).toFixed(1)+'%');
+$('cn').textContent=ev<0?'At a '+Math.round(pay*100)+'% payout you lose about '+(-ev*100).toFixed(1)+' cents per dollar over time, whatever recent digits look like.':"The math isn't against you at this payout, which is unusual. Check the payout Deriv really offers.";
+}
+function runs(key){
+var n=D.length,best=0,bd=null,cur=0,cd=null,k;
+for(var i=0;i<n;i++){k=key(D[i]);if(i&&k===cd)cur++;else{cur=1;cd=k}if(cur>best){best=cur;bd=cd}}
+return{cur:n?cur:0,cd:cd,best:best,bd:bd}}
+function streaks(){
+if(!D.length){$('sres').innerHTML='';return}
+var a=runs(function(x){return x}),p=runs(function(x){return x%2});
+var pn=function(v){return v===1?'odd':'even'};
+$('sres').innerHTML=card('Current repeat','digit '+a.cd+' × '+a.cur)+card('Longest repeat','digit '+a.bd+' × '+a.best)+card('Current parity run',pn(p.cd)+' × '+p.cur)+card('Longest parity run',pn(p.bd)+' × '+p.best);
+}
+function draw(){
+var n=D.length,c=new Array(10).fill(0);D.forEach(function(x){c[x]++});
+$('n').textContent=n;
+var mx=Math.max.apply(null,c),top=Math.max(15,Math.ceil(mx/(n||1)*100/5)*5+5);
+for(var i=0;i<10;i++){var p=n?c[i]/n*100:0;$('p'+i).textContent=p.toFixed(1)+'%';var b=$('b'+i);b.style.height=(p/top*100)+'%';b.className='b'+(n&&c[i]===mx?' mx':'')}
+var tp=$('tape');tp.innerHTML='';D.slice(-40).forEach(function(x){var e=document.createElement('div');e.className='chip'+(x%2?' o':'');e.textContent=x;tp.appendChild(e)});
+if(!n){['eo','hi','ou'].forEach(function(k){$(k).textContent='–'});$('v').textContent='';streaks();contract();return}
+var e=D.filter(function(x){return x%2===0}).length,u=D.filter(function(x){return x<5}).length;
+$('eo').textContent=Math.round(e/n*100)+' / '+Math.round((n-e)/n*100);
+$('ou').textContent=Math.round(u/n*100)+' / '+Math.round((n-u)/n*100);
+$('hi').textContent=c.indexOf(mx);
+var ex=n/10,chi=0;c.forEach(function(k){chi+=(k-ex)*(k-ex)/ex});
+$('v').textContent=n<50?'Only '+n+' ticks so far.':chi>16.92?'Spread looks uneven (chi-square '+chi.toFixed(1)+'), but random data does this about 1 time in 20. It does not predict the next digit.':'Spread is consistent with random digits (chi-square '+chi.toFixed(1)+').';
+streaks();contract();
+}
+function schedule(){if(pend)return;pend=true;setTimeout(function(){pend=false;draw()},250)}
+function close(){clearTimeout(timer);if(ws){ws.onclose=null;ws.onerror=null;try{ws.close()}catch(e){}ws=null}}
+function retry(){
+if(!want)return;
+tries++;var sec=Math.min(15,Math.pow(2,tries-1));
+status('Connection lost. Reconnecting in '+sec+'s (attempt '+tries+')…','err');
+timer=setTimeout(function(){open(false)},sec*1000);
+}
+function open(fresh){
+close();
+if(fresh){D=[];Q=[];draw()}
+var app=$('app').value.trim()||'1089';
+if(!/^\d+$/.test(app)){want=false;status('App ID should be a number.','err');return}
+status(tries?'Reconnecting…':'Connecting…');
+try{ws=new WebSocket('wss://ws.derivws.com/websockets/v3?app_id='+app)}catch(e){status('Could not open a connection: '+e.message,'err');retry();return}
+ws.onopen=function(){
+status('Connected. Loading ticks…','ok');
+ws.send(JSON.stringify({ticks_history:$('sym').value,count:+$('hist').value,end:'latest',style:'ticks'}));
+ws.send(JSON.stringify({ticks:$('sym').value,subscribe:1}));
+};
+ws.onmessage=function(m){
+var d;try{d=JSON.parse(m.data)}catch(e){return}
+if(d.error){status('Deriv says: '+d.error.message,'err');return}
+if(d.msg_type==='history'){
+tries=0;
+if(d.pip_size!=null)pip=d.pip_size;
+Q=d.history.prices.slice();D=Q.map(dig);status('Live. Updating with every tick.','ok');draw();
+}else if(d.msg_type==='tick'){
+if(d.tick.pip_size!=null)pip=d.tick.pip_size;
+Q.push(d.tick.quote);D.push(dig(d.tick.quote));if(D.length>MAX){D.shift();Q.shift()}schedule();
+}};
+ws.onerror=function(){};
+ws.onclose=function(){if(want)retry();else status('Disconnected.')};
+}
+$('con').onclick=function(){want=true;tries=0;open(true)};
+$('dis').onclick=function(){want=false;close();status('Disconnected.')};
+$('sym').onchange=function(){if(want)$('con').onclick()};
+$('csv').onclick=function(){
+if(!D.length){status('Nothing to export yet. Connect first.','err');return}
+var L=['index,quote,last_digit'];
+for(var i=0;i<D.length;i++)L.push((i+1)+','+Number(Q[i]).toFixed(pip)+','+D[i]);
+var b=new Blob([L.join('\n')],{type:'text/csv'}),a=document.createElement('a');
+a.href=URL.createObjectURL(b);a.download='digit-lab-'+$('sym').value+'-'+new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')+'.csv';
+document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(a.href)},1000);
+};
+['ct','br','pay'].forEach(function(k){$(k).oninput=contract});
+$('run').onclick=function(){
+var s=spec(),pay=+$('pay').value/100,B=+$('bal').value,S=+$('stk').value,N=Math.min(5000,Math.floor(+$('nt').value));
+if(!(B>0)||!(S>0)||!(N>0)||!(pay>0)){$('re').textContent='Enter a balance, stake, trades and payout above 0';return}
+if(S>B){$('re').textContent='Stake is bigger than your balance';return}
+$('re').textContent='';
+var R=2000,f=[],bust=0,up=0;
+for(var r=0;r<R;r++){var bal=B,dead=false;for(var t=0;t<N;t++){if(bal<S){dead=true;break}bal+=Math.random()<s.p?S*pay:-S}f.push(bal);if(dead)bust++;if(bal>B)up++}
+f.sort(function(a,b){return a-b});
+$('rres').innerHTML=card('Finish ahead',Math.round(up/R*100)+'%')+card('Run out of money',Math.round(bust/R*100)+'%',bust?'bad':'')+card('Median final',f[R>>1].toFixed(0))+card('Middle 90%',f[Math.floor(R*.05)].toFixed(0)+' to '+f[Math.floor(R*.95)].toFixed(0));
+$('rn').textContent='Uses the true odds for the contract above, not your data.';
+};
+draw();
+})();
+</script>
+</body>
+</html>
